@@ -1,0 +1,35 @@
+# Copy to terraform.tfvars and fill in values. NEVER commit terraform.tfvars.
+
+project_id = "your-gcp-project-id"
+
+# From Discord Developer Portal -> your app:
+discord_public_key = "hex-public-key-from-discord"
+discord_bot_token  = "bot-token-from-discord"
+
+# Container image for the bot (build & push first, see ../bot/Dockerfile)
+bot_image = "gcr.io/your-gcp-project-id/vpn-bot:latest"
+
+# WireGuard server key: umask 077; wg genkey > server.key
+wg_server_private_key = "base64-private-key"
+
+# Peers: generate per device, public_key goes here (private key never leaves the device)
+wg_peers = [
+  {
+    name       = "laptop"
+    public_key = "device-public-key"
+    ip_suffix  = 2
+  },
+  {
+    name       = "phone"
+    public_key = "another-device-public-key"
+    ip_suffix  = 3
+  },
+]
+
+# Discord user IDs allowed to run /vpn commands
+allowed_discord_user_ids = ["123456789012345678"]
+
+# Optional overrides:
+# region  = "asia-southeast1"
+# zone    = "asia-southeast1-b"
+# wg_port = 51820

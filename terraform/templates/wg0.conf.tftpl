@@ -1,0 +1,10 @@
+[Interface]
+Address = ${server_ip}/24
+ListenPort = ${wg_port}
+PrivateKey = ${server_private_key}
+%{~ for i, key in peer_public_keys }
+# peer ${i}
+[Peer]
+PublicKey = ${key}
+AllowedIPs = ${peer_cidrs[i]}
+%{ endfor ~}

@@ -1,0 +1,106 @@
+#!/bin/bash
+set -euo pipefail
+
+# WireGuard VPN VM startup script (rendered by Terraform)
+# Receives vars: wg_port, wg_network, wg_server_ip, wg_config,
+#                idle_shutdown_minutes, project_id, zone, instance_name
+
+PORT="${wg_port}"
+IFACE_IP="${wg_server_ip}"
+IDLE_MINUTES="${idle_shutdown_minutes}"
+PROJECT="${project_id}"
+ZONE="${zone}"
+INSTANCE="${instance_name}"
+
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard qrencode
+
+umask 077
+mkdir -p /etc/wireguard
+cat > /etc/wireguard/wg0.conf <<'WGEOF'
+${wg_config}
+WGEOF
+
+# Enable IP forwarding
+cat > /etc/sysctl.d/99-wireguard.conf <<EOF
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+EOF
+sysctl -p /etc/sysctl.d/99-wireguard.conf
+
+# NAT for VPN clients
+cat > /etc/iptables/rules.v4 <<EOF
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A FORWARD -i wg0 -o ens4 -j ACCEPT
+COMMIT
+*nat
+:PREROUTING ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A POSTROUTING -s ${wg_network} -o ens4 -j MASQUERADE
+COMMIT
+EOF
+
+apt-get install -y iptables-persistent
+iptables-restore < /etc/iptables/rules.v4
+netfilter-persistent save
+
+wg-quick up wg0
+systemctl enable wg-quick@wg0
+
+# --- Idle shutdown watcher ---
+cat > /usr/local/bin/vpn-idle-check <<'EOF'
+#!/bin/bash
+# Stops this VM via the metadata server if no recent WireGuard handshake.
+set -uo pipefail
+
+IDLE_MINUTES="$${IDLE_MINUTES:-30}"
+PROJECT="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/project/project-id")"
+ZONE="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')"
+INSTANCE="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/name")"
+
+now=$(date +%s)
+latest=0
+while read -r _ ts; do
+  ts=$((ts + 0))
+  (( ts > latest )) && latest=$ts
+done < <(wg show wg0 latest-handshakes)
+
+idle=$(( now - latest ))
+if [ "$latest" -eq 0 ] || [ "$idle" -ge $((IDLE_MINUTES * 60)) ]; then
+  logger "vpn-idle-check: no handshake for $${idle}s, stopping $${INSTANCE}"
+  gcloud compute instances stop "$INSTANCE" --project="$PROJECT" --zone="$ZONE" --quiet
+fi
+EOF
+
+chmod +x /usr/local/bin/vpn-idle-check
+
+cat > /etc/systemd/system/vpn-idle-check.service <<'EOF'
+[Unit]
+Description=Check WireGuard idle time and stop VM if unused
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vpn-idle-check
+Environment=IDLE_MINUTES=${idle_shutdown_minutes}
+EOF
+
+cat > /etc/systemd/system/vpn-idle-check.timer <<'EOF'
+[Unit]
+Description=Run vpn-idle-check every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now vpn-idle-check.timer
+
+echo "WireGuard VPN VM startup complete"
