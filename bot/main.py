@@ -179,7 +179,7 @@ def _patch_original(token: str, content: str) -> None:
         headers={
             "Authorization": f"Bot {BOT_TOKEN}",
             "Content-Type": "application/json",
-            "User-Agent": "on-demand-vpn-bot (https://github.com/nugsky/on-demand-vpn, 1.0)",
+            "User-Agent": "on-demand-vpn-bot (https://github.com/nugroho-s/on-demand-vpn, 1.1)",
         },
             method="PATCH",
         )

@@ -32,6 +32,11 @@ variable "discord_bot_token" {
   sensitive   = true
 }
 
+variable "discord_app_id" {
+  description = "Discord application ID (used to PATCH the original interaction response)"
+  type        = string
+}
+
 variable "wg_server_private_key" {
   description = "WireGuard server private key (base64). Generate: wg genkey"
   type        = string
