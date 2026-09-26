@@ -5,6 +5,7 @@ project_id = "your-gcp-project-id"
 # From Discord Developer Portal -> your app:
 discord_public_key = "hex-public-key-from-discord"
 discord_bot_token  = "bot-token-from-discord"
+discord_app_id     = "application-id-from-discord"
 
 # Container image for the bot (build & push first, see ../bot/Dockerfile)
 bot_image = "gcr.io/your-gcp-project-id/vpn-bot:latest"

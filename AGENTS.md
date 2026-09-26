@@ -19,6 +19,8 @@ On-demand WireGuard VPN on GCP, started/stopped only via a Discord bot. Terrafor
 - **wg0.conf.tftpl whitespace**: use `%{~ for ...}` then `%{ endfor ~}` (trim markers) or the render produces broken `PrivateKey = KEY# peer 0` lines.
 - **GCE IAM conditions**: `resource.name` for instances is a full path (`projects/x/zones/y/instances/name`) — match with `endsWith('/instances/on-demand-vpn')`, never `startsWith('project-name')`.
 - **Cloud Run invoker IAM**: do NOT use both `google_cloud_run_v2_service_iam_member` (allUsers) and a `..._iam_policy` resource on the same service — the authoritative policy silently deletes the member binding and Discord gets 403 "didn't respond in time". Use ONE authoritative policy with all members.
+- **`-replace` on the Cloud Run service nukes its IAM policy server-side** but the `..._iam_policy` terraform resource shows no diff, so it is never reapplied — every request 403s. Always pair `-replace=google_cloud_run_v2_service.bot` with `-replace=google_cloud_run_v2_service_iam_policy.pubsub_push`, or verify with `gcloud run services get-iam-policy` after.
+- **Cloud Run serves by digest, terraform tracks the tag string**: repushing `:latest` with unchanged tfvars creates NO new revision. Force one with `-replace=google_cloud_run_v2_service.bot` (see the IAM gotcha above).
 - **GCE MTU**: NIC MTU is 1460, so WireGuard needs `MTU = 1400` (1460-60) or clients handshake but can't browse.
 - **Discord API via Python**: default `urllib` User-Agent is blocked by Cloudflare (error 1010). Set a custom User-Agent in every call (`bot/main.py`, `bot/register_commands.py`).
 - **Discord 3s interaction window**: `/vpn start` responds immediately and PATCHes `@original` later — don't block the webhook on the GCE start call.

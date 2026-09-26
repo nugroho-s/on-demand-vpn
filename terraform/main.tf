@@ -265,6 +265,10 @@ resource "google_cloud_run_v2_service" "bot" {
           }
         }
       }
+      env {
+        name  = "DISCORD_APP_ID"
+        value = var.discord_app_id
+      }
     }
   }
 
