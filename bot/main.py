@@ -176,10 +176,11 @@ def _patch_original(token: str, content: str) -> None:
         req = urllib.request.Request(
             f"https://discord.com/api/v10/webhooks/{app_id}/{token}/messages/@original",
             data=json.dumps({"content": content}).encode(),
-            headers={
-                "Authorization": f"Bot {BOT_TOKEN}",
-                "Content-Type": "application/json",
-            },
+        headers={
+            "Authorization": f"Bot {BOT_TOKEN}",
+            "Content-Type": "application/json",
+            "User-Agent": "on-demand-vpn-bot (https://github.com/nugsky/on-demand-vpn, 1.0)",
+        },
             method="PATCH",
         )
         with urllib.request.urlopen(req, timeout=10) as resp:

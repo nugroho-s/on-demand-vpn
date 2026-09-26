@@ -13,7 +13,7 @@ ZONE="${zone}"
 INSTANCE="${instance_name}"
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard qrencode
+DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard qrencode iptables-persistent
 
 umask 077
 mkdir -p /etc/wireguard
@@ -28,7 +28,8 @@ net.ipv6.conf.all.forwarding = 1
 EOF
 sysctl -p /etc/sysctl.d/99-wireguard.conf
 
-# NAT for VPN clients
+# NAT for VPN clients (installed above, /etc/iptables now exists)
+mkdir -p /etc/iptables
 cat > /etc/iptables/rules.v4 <<EOF
 *filter
 :INPUT ACCEPT [0:0]
@@ -44,23 +45,23 @@ COMMIT
 COMMIT
 EOF
 
-apt-get install -y iptables-persistent
 iptables-restore < /etc/iptables/rules.v4
 netfilter-persistent save
 
-wg-quick up wg0
+wg-quick up wg0 || ip link show wg0 >/dev/null 2>&1 || { journalctl -u google-startup-scripts.service -n 50; exit 1; }
 systemctl enable wg-quick@wg0
 
 # --- Idle shutdown watcher ---
 cat > /usr/local/bin/vpn-idle-check <<'EOF'
 #!/bin/bash
-# Stops this VM via the metadata server if no recent WireGuard handshake.
+# Stops this VM if no recent WireGuard handshake (idle cost saving).
 set -uo pipefail
 
 IDLE_MINUTES="$${IDLE_MINUTES:-30}"
 PROJECT="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/project/project-id")"
 ZONE="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')"
 INSTANCE="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/name")"
+TOKEN="$(curl -s -X POST -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
 
 now=$(date +%s)
 latest=0
@@ -72,7 +73,11 @@ done < <(wg show wg0 latest-handshakes)
 idle=$(( now - latest ))
 if [ "$latest" -eq 0 ] || [ "$idle" -ge $((IDLE_MINUTES * 60)) ]; then
   logger "vpn-idle-check: no handshake for $${idle}s, stopping $${INSTANCE}"
-  gcloud compute instances stop "$INSTANCE" --project="$PROJECT" --zone="$ZONE" --quiet
+  curl -s -X POST \
+    -H "Authorization: Bearer $${TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{"status":"TERMINATED"}' \
+    "https://compute.googleapis.com/compute/v1/projects/$${PROJECT}/zones/$${ZONE}/instances/$${INSTANCE}/stop"
 fi
 EOF
 

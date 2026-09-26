@@ -24,7 +24,6 @@ resource "google_project_service" "enabled" {
     "cloudscheduler.googleapis.com",
     "pubsub.googleapis.com",
     "secretmanager.googleapis.com",
-    "eventarcbroker.googleapis.com",
   ])
 
   service            = each.key
@@ -89,27 +88,31 @@ resource "google_project_iam_member" "vm_stop_self" {
   member  = "serviceAccount:${google_service_account.vm.email}"
 
   condition {
-    title      = "vpn-vm-can-stop-itself"
-    expression = "resource.type == 'compute.googleapis.com/Instance' && resource.name.startsWith('${var.project_id}-${local.instance_name}')"
+    title       = "vpn-vm-can-stop-itself"
+    description = "Only the on-demand-vpn instance"
+    expression  = "resource.type == 'compute.googleapis.com/Instance' && resource.name.endsWith('/instances/${local.instance_name}')"
   }
 }
 
 # Access to metadata-based server identity is implicit; no other roles needed.
 
-# Bot service account: start/stop the VM, read the WireGuard secret for Pub/Sub? (not needed)
+# Bot service account: start/stop the VPN VM
 resource "google_service_account" "bot" {
   account_id   = "vpn-bot"
   display_name = "On-demand VPN Discord bot"
 }
 
+# Per-instance SA cannot be granted; use project-level instanceAdmin scoped by
+# an IAM condition on the instance name (unique to this stack).
 resource "google_project_iam_member" "bot_compute" {
   project = var.project_id
   role    = "roles/compute.instanceAdmin.v1"
   member  = "serviceAccount:${google_service_account.bot.email}"
 
   condition {
-    title      = "vpn-bot-manage-vpn-vm"
-    expression = "resource.type == 'compute.googleapis.com/Instance' && resource.name.startsWith('${var.project_id}-${local.instance_name}')"
+    title       = "vpn-bot-manage-vpn-vm"
+    description = "Only the on-demand-vpn instance"
+    expression  = "resource.type == 'compute.googleapis.com/Instance' && resource.name.endsWith('/instances/${local.instance_name}')"
   }
 }
 
@@ -162,6 +165,10 @@ resource "google_compute_instance" "vpn" {
 
   network_interface {
     subnetwork = google_compute_subnetwork.subnet.id
+
+    # Ephemeral public IP (assigned while RUNNING, released on stop).
+    # Without this block the VM would have no external IP at all.
+    access_config {}
   }
 
   service_account {
@@ -176,6 +183,7 @@ resource "google_compute_instance" "vpn" {
     wg_config = templatefile("${path.module}/templates/wg0.conf.tftpl", {
       server_private_key = var.wg_server_private_key
       wg_port            = var.wg_port
+      wg_mtu             = var.wg_mtu
       server_ip          = local.wg_server_ip
       peer_cidrs         = local.peer_cidrs
       peer_public_keys   = [for p in var.wg_peers : p.public_key]
@@ -221,7 +229,7 @@ resource "google_cloud_run_v2_service" "bot" {
       resources {
         limits = {
           cpu    = "1"
-          memory = "256Mi"
+          memory = "512Mi"
         }
         startup_cpu_boost = false
       }
@@ -265,25 +273,20 @@ resource "google_cloud_run_v2_service" "bot" {
   depends_on = [google_project_service.enabled]
 }
 
-# Allow anyone (Discord) to invoke - auth is via Discord signature verification
-resource "google_cloud_run_v2_service_iam_member" "public" {
-  name     = google_cloud_run_v2_service.bot.name
-  location = google_cloud_run_v2_service.bot.location
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
-
 # --- Nightly shutdown via Pub/Sub -> Cloud Run ---
 
 resource "google_pubsub_topic" "vpn_stop" {
   name = "vpn-nightly-stop"
 }
 
-# Push subscription delivers to the Cloud Run bot's /pubsub endpoint
-data "google_iam_policy" "pubsub_push" {
+# Discord (unauthenticated internet) must invoke the bot; auth is Discord's
+# Ed25519 signature. Pub/Sub also invokes for the nightly stop. One authoritative
+# policy with BOTH members (an additive member resource would be overwritten).
+data "google_iam_policy" "bot_invokers" {
   binding {
     role = "roles/run.invoker"
     members = [
+      "allUsers",
       "serviceAccount:service-${data.google_project.project.number}@gcp-sa-pubsub.iam.gserviceaccount.com",
     ]
   }
@@ -295,7 +298,7 @@ data "google_project" "project" {
 resource "google_cloud_run_v2_service_iam_policy" "pubsub_push" {
   name        = google_cloud_run_v2_service.bot.name
   location    = google_cloud_run_v2_service.bot.location
-  policy_data = data.google_iam_policy.pubsub_push.policy_data
+  policy_data = data.google_iam_policy.bot_invokers.policy_data
 }
 
 resource "google_pubsub_subscription" "vpn_stop" {

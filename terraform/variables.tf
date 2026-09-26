@@ -44,6 +44,12 @@ variable "wg_port" {
   default     = 51820
 }
 
+variable "wg_mtu" {
+  description = "WireGuard interface MTU. GCE NIC MTU is 1460; 1460 - 60 (WG overhead) = 1400"
+  type        = number
+  default     = 1400
+}
+
 variable "wg_network" {
   description = "WireGuard interface subnet (CIDR)"
   type        = string

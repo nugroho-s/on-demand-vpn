@@ -9,6 +9,7 @@ Requires DISCORD_BOT_TOKEN (and optional DISCORD_APP_ID) in the environment.
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
@@ -46,6 +47,8 @@ def main() -> None:
         headers={
             "Authorization": f"Bot {TOKEN}",
             "Content-Type": "application/json",
+            # Discord's Cloudflare blocks the default python-urllib User-Agent (error 1010)
+            "User-Agent": "on-demand-vpn-setup (https://github.com/nugsky/on-demand-vpn, 1.0)",
         },
         method="PUT",
     )
@@ -54,4 +57,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except urllib.error.HTTPError as e:
+        sys.exit(f"Discord API error {e.code}: {e.read().decode()}")

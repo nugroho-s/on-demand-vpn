@@ -13,6 +13,11 @@ output "wireguard_port" {
   value       = var.wg_port
 }
 
+output "wg_mtu" {
+  description = "WireGuard MTU"
+  value       = var.wg_mtu
+}
+
 output "bot_service_uri" {
   description = "Cloud Run service URI for the Discord bot"
   value       = google_cloud_run_v2_service.bot.uri
@@ -31,6 +36,17 @@ output "scheduler_job_name" {
 output "peer_ips" {
   description = "Map of peer name -> assigned WireGuard IP (for scripts/make-client-configs.sh)"
   value       = { for p in var.wg_peers : p.name => "${cidrhost(var.wg_network, p.ip_suffix)}/32" }
+}
+
+output "peers" {
+  description = "Peer details incl. public keys, for scripts/make-client-configs.sh"
+  value = [
+    for p in var.wg_peers : {
+      name       = p.name
+      public_key = p.public_key
+      ip         = "${cidrhost(var.wg_network, p.ip_suffix)}/32"
+    }
+  ]
 }
 
 output "wg_subnet" {

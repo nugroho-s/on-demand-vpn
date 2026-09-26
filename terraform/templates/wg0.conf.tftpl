@@ -2,6 +2,7 @@
 Address = ${server_ip}/24
 ListenPort = ${wg_port}
 PrivateKey = ${server_private_key}
+MTU = ${wg_mtu}
 %{~ for i, key in peer_public_keys }
 # peer ${i}
 [Peer]
