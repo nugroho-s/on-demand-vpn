@@ -1,11 +1,11 @@
 output "vpn_instance_name" {
   description = "Name of the VPN VM"
-  value       = google_compute_instance.vpn.name
+  value       = "on-demand-vpn"
 }
 
-output "vpn_instance_zone" {
-  description = "Zone of the VPN VM"
-  value       = google_compute_instance.vpn.zone
+output "vpn_instance_template" {
+  description = "Self link of the VPN instance template"
+  value       = google_compute_instance_template.vpn.self_link
 }
 
 output "wireguard_port" {

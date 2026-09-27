@@ -37,10 +37,11 @@ resource "google_compute_network" "vpc" {
   auto_create_subnetworks = false
 }
 
-resource "google_compute_subnetwork" "subnet" {
-  name          = "vpn-subnet"
-  ip_cidr_range = "10.12.0.0/28"
-  region        = var.region
+resource "google_compute_subnetwork" "subnets" {
+  for_each      = var.locations
+  name          = "vpn-subnet-${each.key}"
+  ip_cidr_range = each.value.cidr
+  region        = each.value.region
   network       = google_compute_network.vpc.id
 }
 
@@ -88,32 +89,32 @@ resource "google_project_iam_member" "vm_stop_self" {
   member  = "serviceAccount:${google_service_account.vm.email}"
 
   condition {
-    title       = "vpn-vm-can-stop-itself"
-    description = "Only the on-demand-vpn instance"
-    expression  = "resource.type == 'compute.googleapis.com/Instance' && resource.name.endsWith('/instances/${local.instance_name}')"
+    title       = "vpn-vm-can-delete-itself"
+    description = "Only the on-demand-vpn instance and disk"
+    expression  = "(resource.type == 'compute.googleapis.com/Instance' && resource.name.endsWith('/instances/${local.instance_name}')) || (resource.type == 'compute.googleapis.com/Disk' && resource.name.endsWith('/disks/${local.instance_name}'))"
   }
 }
 
 # Access to metadata-based server identity is implicit; no other roles needed.
 
-# Bot service account: start/stop the VPN VM
+# Bot service account: create/delete the VPN VM
 resource "google_service_account" "bot" {
   account_id   = "vpn-bot"
   display_name = "On-demand VPN Discord bot"
 }
 
-# Per-instance SA cannot be granted; use project-level instanceAdmin scoped by
-# an IAM condition on the instance name (unique to this stack).
+# Bot creates and deletes instances, attached disks, and uses regional subnets/templates.
 resource "google_project_iam_member" "bot_compute" {
   project = var.project_id
   role    = "roles/compute.instanceAdmin.v1"
   member  = "serviceAccount:${google_service_account.bot.email}"
+}
 
-  condition {
-    title       = "vpn-bot-manage-vpn-vm"
-    description = "Only the on-demand-vpn instance"
-    expression  = "resource.type == 'compute.googleapis.com/Instance' && resource.name.endsWith('/instances/${local.instance_name}')"
-  }
+# Bot SA must be able to attach the VM SA when creating instances from template
+resource "google_service_account_iam_member" "bot_act_as_vm" {
+  service_account_id = google_service_account.vm.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.bot.email}"
 }
 
 # --- Secrets ---
@@ -148,27 +149,23 @@ data "google_compute_image" "debian" {
   project = "debian-cloud"
 }
 
-resource "google_compute_instance" "vpn" {
-  name         = local.instance_name
+resource "google_compute_instance_template" "vpn" {
+  name_prefix  = "vpn-template-"
   machine_type = var.machine_type
-  zone         = var.zone
 
   tags = ["wireguard"]
 
-  boot_disk {
-    initialize_params {
-      image = data.google_compute_image.debian.self_link
-      size  = 10
-      type  = "pd-balanced"
-    }
+  disk {
+    source_image = data.google_compute_image.debian.self_link
+    auto_delete  = true
+    boot         = true
+    disk_size_gb = 10
+    disk_type    = "pd-balanced"
   }
 
   network_interface {
-    subnetwork = google_compute_subnetwork.subnet.id
-
-    # Ephemeral public IP (assigned while RUNNING, released on stop).
-    # Without this block the VM would have no external IP at all.
-    access_config {}
+    network    = google_compute_network.vpc.id
+    subnetwork = google_compute_subnetwork.subnets[var.default_location].id
   }
 
   service_account {
@@ -176,32 +173,24 @@ resource "google_compute_instance" "vpn" {
     scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 
-  metadata_startup_script = templatefile("${path.module}/templates/startup.sh.tftpl", {
-    wg_port      = var.wg_port
-    wg_network   = var.wg_network
-    wg_server_ip = local.wg_server_ip
-    wg_config = templatefile("${path.module}/templates/wg0.conf.tftpl", {
-      server_private_key = var.wg_server_private_key
-      wg_port            = var.wg_port
-      wg_mtu             = var.wg_mtu
-      server_ip          = local.wg_server_ip
-      peer_cidrs         = local.peer_cidrs
-      peer_public_keys   = [for p in var.wg_peers : p.public_key]
+  metadata = {
+    startup-script = templatefile("${path.module}/templates/startup.sh.tftpl", {
+      wg_network = var.wg_network
+      wg_config = templatefile("${path.module}/templates/wg0.conf.tftpl", {
+        server_private_key = var.wg_server_private_key
+        wg_port            = var.wg_port
+        wg_mtu             = var.wg_mtu
+        server_ip          = local.wg_server_ip
+        peer_cidrs         = local.peer_cidrs
+        peer_public_keys   = [for p in var.wg_peers : p.public_key]
+      })
+      idle_shutdown_minutes = var.idle_shutdown_minutes
     })
-    idle_shutdown_minutes = var.idle_shutdown_minutes
-    project_id            = var.project_id
-    zone                  = var.zone
-    instance_name         = local.instance_name
-  })
-
-  # Cheap trick: allow stopping for cost saving
-  scheduling {
-    preemptible       = false
-    automatic_restart = true
   }
 
-  # Do not auto-restart the VM on host maintenance if it was stopped on purpose.
-  desired_status = "TERMINATED"
+  lifecycle {
+    create_before_destroy = true
+  }
 
   depends_on = [google_project_service.enabled]
 }
@@ -245,6 +234,28 @@ resource "google_cloud_run_v2_service" "bot" {
       env {
         name  = "INSTANCE_NAME"
         value = local.instance_name
+      }
+      env {
+        name  = "INSTANCE_TEMPLATE"
+        value = google_compute_instance_template.vpn.self_link
+      }
+      env {
+        name  = "DEFAULT_LOCATION"
+        value = var.default_location
+      }
+      env {
+        name = "LOCATIONS"
+        value = jsonencode({
+          for k, v in var.locations : k => {
+            region     = v.region
+            zone       = v.zone
+            subnetwork = google_compute_subnetwork.subnets[k].self_link
+          }
+        })
+      }
+      env {
+        name  = "WG_PORT"
+        value = tostring(var.wg_port)
       }
       env {
         name  = "DISCORD_PUBLIC_KEY"
