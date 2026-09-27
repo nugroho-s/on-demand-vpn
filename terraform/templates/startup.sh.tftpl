@@ -2,15 +2,9 @@
 set -euo pipefail
 
 # WireGuard VPN VM startup script (rendered by Terraform)
-# Receives vars: wg_port, wg_network, wg_server_ip, wg_config,
-#                idle_shutdown_minutes, project_id, zone, instance_name
+# Receives vars: wg_network, wg_config, idle_shutdown_minutes
 
-PORT="${wg_port}"
-IFACE_IP="${wg_server_ip}"
 IDLE_MINUTES="${idle_shutdown_minutes}"
-PROJECT="${project_id}"
-ZONE="${zone}"
-INSTANCE="${instance_name}"
 
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard qrencode iptables-persistent
@@ -72,12 +66,10 @@ done < <(wg show wg0 latest-handshakes)
 
 idle=$(( now - latest ))
 if [ "$latest" -eq 0 ] || [ "$idle" -ge $((IDLE_MINUTES * 60)) ]; then
-  logger "vpn-idle-check: no handshake for $${idle}s, stopping $${INSTANCE}"
-  curl -s -X POST \
+  logger "vpn-idle-check: no handshake for $${idle}s, deleting $${INSTANCE}"
+  curl -s -X DELETE \
     -H "Authorization: Bearer $${TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d '{"status":"TERMINATED"}' \
-    "https://compute.googleapis.com/compute/v1/projects/$${PROJECT}/zones/$${ZONE}/instances/$${INSTANCE}/stop"
+    "https://compute.googleapis.com/compute/v1/projects/$${PROJECT}/zones/$${ZONE}/instances/$${INSTANCE}"
 fi
 EOF
 

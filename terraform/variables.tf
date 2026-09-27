@@ -10,9 +10,46 @@ variable "region" {
 }
 
 variable "zone" {
-  description = "GCP zone for the VPN VM"
+  description = "GCP zone for the VPN VM (legacy / fallback)"
   type        = string
   default     = "asia-southeast1-b"
+}
+
+variable "locations" {
+  description = "Supported VPN locations (region, zone, CIDR for subnetwork)"
+  type = map(object({
+    region = string
+    zone   = string
+    cidr   = string
+  }))
+  default = {
+    sg = {
+      region = "asia-southeast1"
+      zone   = "asia-southeast1-b"
+      cidr   = "10.12.0.0/28"
+    }
+    us = {
+      region = "us-central1"
+      zone   = "us-central1-a"
+      cidr   = "10.12.1.0/28"
+    }
+    jp = {
+      region = "asia-northeast1"
+      zone   = "asia-northeast1-a"
+      cidr   = "10.12.2.0/28"
+    }
+    eu = {
+      region = "europe-west3"
+      zone   = "europe-west3-a"
+      cidr   = "10.12.3.0/28"
+    }
+  }
+}
+
+variable "default_location" {
+  description = "Default VPN location key if not specified in Discord command"
+  type        = string
+  default     = "sg"
 }
 
 variable "bot_image" {

@@ -30,7 +30,19 @@ COMMANDS = [
                     {"name": "start", "value": "start"},
                     {"name": "stop", "value": "stop"},
                 ],
-            }
+            },
+            {
+                "name": "location",
+                "description": "VPN server location (optional, start only)",
+                "type": 3,  # STRING
+                "required": False,
+                "choices": [
+                    {"name": "Singapore (asia-southeast1)", "value": "sg"},
+                    {"name": "US Central (us-central1)", "value": "us"},
+                    {"name": "Tokyo (asia-northeast1)", "value": "jp"},
+                    {"name": "Frankfurt (europe-west3)", "value": "eu"},
+                ],
+            },
         ],
     }
 ]
