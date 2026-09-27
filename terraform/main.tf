@@ -104,10 +104,55 @@ resource "google_service_account" "bot" {
 }
 
 # Bot creates and deletes instances, attached disks, and uses regional subnets/templates.
-resource "google_project_iam_member" "bot_compute" {
+# instanceAdmin.v1 cannot be fully name-scoped (insert/aggregatedList have no resource
+# name at check time), so split least-privilege custom roles instead of the broad
+# predefined role: unconditioned create/list permissions plus name-conditioned
+# get/delete on only the VPN instance.
+resource "google_project_iam_custom_role" "bot_create" {
+  role_id     = "vpnBotCreate"
+  title       = "On-demand VPN bot create"
+  description = "Create VPN instances from template and list instances; cannot be name-conditioned"
+  permissions = [
+    "compute.instances.create",
+    "compute.instances.list",
+    "compute.instances.setMetadata",
+    "compute.instances.setTags",
+    "compute.instances.setLabels",
+    "compute.instances.setServiceAccount",
+    "compute.disks.create",
+    "compute.subnetworks.use",
+    "compute.subnetworks.useExternalIp",
+    "compute.instanceTemplates.get",
+    "compute.instanceTemplates.useReadOnly",
+  ]
+}
+
+resource "google_project_iam_custom_role" "bot_manage" {
+  role_id     = "vpnBotManage"
+  title       = "On-demand VPN bot manage"
+  description = "Get/delete only the on-demand-vpn instance (name-conditioned binding)"
+  permissions = [
+    "compute.instances.get",
+    "compute.instances.delete",
+  ]
+}
+
+resource "google_project_iam_member" "bot_compute_create" {
   project = var.project_id
-  role    = "roles/compute.instanceAdmin.v1"
+  role    = google_project_iam_custom_role.bot_create.id
   member  = "serviceAccount:${google_service_account.bot.email}"
+}
+
+resource "google_project_iam_member" "bot_compute_manage" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.bot_manage.id
+  member  = "serviceAccount:${google_service_account.bot.email}"
+
+  condition {
+    title       = "vpn-bot-manage-vpn-vm"
+    description = "Only the on-demand-vpn instance"
+    expression  = "resource.type == 'compute.googleapis.com/Instance' && resource.name.endsWith('/instances/${local.instance_name}')"
+  }
 }
 
 # Bot SA must be able to attach the VM SA when creating instances from template
