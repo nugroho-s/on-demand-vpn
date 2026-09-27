@@ -80,13 +80,9 @@ def vm_status(instance: compute_v1.Instance) -> tuple[str, str | None]:
 
 
 def delete_vm(zone: str) -> None:
-    """Delete VM and attached auto-delete boot disk."""
+    """Delete VM and attached auto-delete boot disk. Raises on failure."""
     log.info("Deleting instance %s in zone %s", INSTANCE, zone)
-    try:
-        client().delete(project=PROJECT, zone=zone, instance=INSTANCE)
-    except Exception as e:
-        log.exception("Error calling delete instance: %s", e)
-        return
+    client().delete(project=PROJECT, zone=zone, instance=INSTANCE)
 
     for _ in range(60):
         time.sleep(2)
@@ -94,7 +90,7 @@ def delete_vm(zone: str) -> None:
         if not inst:
             log.info("Instance %s in zone %s successfully deleted", INSTANCE, zone)
             return
-    log.warning("Timed out waiting for instance %s deletion", INSTANCE)
+    raise TimeoutError(f"Timed out waiting for instance {INSTANCE} deletion in zone {zone}")
 
 
 def create_vm(zone: str, subnetwork_url: str) -> compute_v1.Instance:
