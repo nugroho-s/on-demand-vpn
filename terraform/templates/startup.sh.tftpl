@@ -55,7 +55,7 @@ IDLE_MINUTES="$${IDLE_MINUTES:-30}"
 PROJECT="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/project/project-id")"
 ZONE="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')"
 INSTANCE="$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/name")"
-TOKEN="$(curl -s -X POST -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+TOKEN="$(curl -s -X POST -H "Metadata-Flavor: Google" -H "Content-Length: 0" "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
 
 now=$(date +%s)
 latest=0
