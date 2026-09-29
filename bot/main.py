@@ -130,17 +130,8 @@ def create_vm(zone: str, subnetwork_url: str) -> compute_v1.Instance:
 
 def handle_vpn_action(action: str | None, location: str | None, user_id: str, token: str = "") -> dict:
     if action == "status":
-        inst, zone = find_active_vm()
-        if not inst:
-            return {"content": "⚪ VPN is **STOPPED** (0 active resources, $0/hr)"}
-
-        loc_alias = next((k for k, v in LOCATIONS.items() if v.get("zone") == zone), zone or "unknown")
-        status, ip = vm_status(inst)
-        if status == "RUNNING":
-            content = f"🟢 VPN is **RUNNING** in **{loc_alias.upper()}** (`{zone}`)\nEndpoint: `{ip}:{WG_PORT}`"
-        else:
-            content = f"🟡 VPN is **{status}** in **{loc_alias.upper()}** (`{zone}`)"
-        return {"content": content}
+        threading.Thread(target=_status_and_patch, args=(token,), daemon=True).start()
+        return {"content": "🔎 Checking VPN status…"}
 
     if action == "start":
         target_loc = (location or DEFAULT_LOCATION).lower()
@@ -158,6 +149,24 @@ def handle_vpn_action(action: str | None, location: str | None, user_id: str, to
         return {"content": "🛑 Stopping VPN and deleting VM resources… (I'll update this message once cleaned up)"}
 
     return {"content": f"Unknown action: {action}"}
+
+
+def _status_and_patch(token: str) -> None:
+    try:
+        inst, zone = find_active_vm()
+        if not inst:
+            content = "⚪ VPN is **STOPPED** (0 active resources, $0/hr)"
+        else:
+            loc_alias = next((k for k, v in LOCATIONS.items() if v.get("zone") == zone), zone or "unknown")
+            status, ip = vm_status(inst)
+            if status == "RUNNING":
+                content = f"🟢 VPN is **RUNNING** in **{loc_alias.upper()}** (`{zone}`)\nEndpoint: `{ip}:{WG_PORT}`"
+            else:
+                content = f"🟡 VPN is **{status}** in **{loc_alias.upper()}** (`{zone}`)"
+    except Exception:
+        log.exception("status failed")
+        content = "❌ Failed to check VPN status — check Cloud Run logs."
+    _patch_original(token, content)
 
 
 def _start_and_patch(token: str, location: str) -> None:
