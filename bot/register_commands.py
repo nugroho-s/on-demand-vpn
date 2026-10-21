@@ -38,6 +38,7 @@ COMMANDS = [
                 "required": False,
                 "choices": [
                     {"name": "Singapore (asia-southeast1)", "value": "sg"},
+                    {"name": "Jakarta (asia-southeast2)", "value": "id"},
                     {"name": "US Central (us-central1)", "value": "us"},
                     {"name": "Tokyo (asia-northeast1)", "value": "jp"},
                     {"name": "Frankfurt (europe-west3)", "value": "eu"},

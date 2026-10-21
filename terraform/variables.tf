@@ -28,6 +28,11 @@ variable "locations" {
       zone   = "asia-southeast1-b"
       cidr   = "10.12.0.0/28"
     }
+    id = {
+      region = "asia-southeast2"
+      zone   = "asia-southeast2-a"
+      cidr   = "10.12.4.0/28"
+    }
     us = {
       region = "us-central1"
       zone   = "us-central1-a"

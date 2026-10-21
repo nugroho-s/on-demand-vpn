@@ -102,6 +102,15 @@ scripts/make-client-configs.sh
 /vpn stop     # stop VM
 ```
 
+Choose a location with `/vpn start location:id` for Jakarta, Indonesia
+(`asia-southeast2`, zone `asia-southeast2-a`). Other options are `sg`
+(Singapore, default), `us` (US Central), `jp` (Tokyo), and `eu` (Frankfurt).
+
+After updating the locations, run `terraform apply` and re-run
+`bot/register_commands.py` with your Discord credentials to update the location
+menu. If you override `locations` in your Terraform variables, add the Jakarta
+entry there too; an override replaces the entire default map.
+
 The public IP is **ephemeral** (changes on every start). After `/vpn start`, copy the reported endpoint into your client config. If this annoys you, switch to a static reserved IP (`google_compute_address`) — one-line change in `main.tf`.
 
 Only user IDs in `allowed_discord_user_ids` may use the commands.
